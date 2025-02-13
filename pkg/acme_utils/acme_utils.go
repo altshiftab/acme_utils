@@ -2,7 +2,6 @@ package acme_utils
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,7 +12,7 @@ import (
 	"golang.org/x/crypto/acme"
 )
 
-func obtainCertificate(domain string, certificateKey crypto.Signer, orderUri string, client *acme.Client) ([][]byte, error) {
+func obtainCertificate(domain string, certificateKey *ecdsa.PrivateKey, orderUri string, client *acme.Client) ([][]byte, error) {
 	if domain == "" {
 		return nil, nil
 	}
@@ -189,8 +188,8 @@ func RenewCertificate(
 	domain string,
 	authorizeCallback func(string) error,
 	client *acme.Client,
-	certificateKey crypto.Signer,
-) (crypto.Signer, [][]byte, error) {
+	certificateKey *ecdsa.PrivateKey,
+) (*ecdsa.PrivateKey, [][]byte, error) {
 	if domain == "" {
 		return nil, nil, nil
 	}
