@@ -12,7 +12,13 @@ import (
 	"golang.org/x/crypto/acme"
 )
 
-func obtainCertificate(domain string, certificateKey *ecdsa.PrivateKey, orderUri string, client *acme.Client) ([][]byte, error) {
+func obtainCertificate(
+	ctx context.Context,
+	domain string,
+	certificateKey *ecdsa.PrivateKey,
+	orderUri string,
+	client *acme.Client,
+) ([][]byte, error) {
 	if domain == "" {
 		return nil, nil
 	}
@@ -45,7 +51,7 @@ func obtainCertificate(domain string, certificateKey *ecdsa.PrivateKey, orderUri
 		return nil, acmeUtilsErrors.ErrNilCertificateRequest
 	}
 
-	order, err := client.WaitOrder(context.Background(), orderUri)
+	order, err := client.WaitOrder(ctx, orderUri)
 	if err != nil {
 		return nil, &motmedelErrors.InputError{
 			Message: "An error occurred when waiting for an order.",
@@ -57,7 +63,7 @@ func obtainCertificate(domain string, certificateKey *ecdsa.PrivateKey, orderUri
 		return nil, acmeUtilsErrors.ErrNilOrder
 	}
 
-	certificateDerBlocks, _, err := client.CreateOrderCert(context.Background(), order.FinalizeURL, certificateRequest, true)
+	certificateDerBlocks, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, certificateRequest, true)
 	if err != nil {
 		return nil, &motmedelErrors.CauseError{
 			Message: "An error occurred when creating certificate blocks.",
@@ -68,7 +74,7 @@ func obtainCertificate(domain string, certificateKey *ecdsa.PrivateKey, orderUri
 	return certificateDerBlocks, nil
 }
 
-func authorize(authorizationUrl string, client *acme.Client, callback func(string) error) error {
+func authorize(ctx context.Context, authorizationUrl string, client *acme.Client, callback func(string) error) error {
 	if authorizationUrl == "" {
 		return acmeUtilsErrors.ErrEmptyAuthorizationUrl
 	}
@@ -81,7 +87,7 @@ func authorize(authorizationUrl string, client *acme.Client, callback func(strin
 		return acmeUtilsErrors.ErrNilAuthorizeCallback
 	}
 
-	authorization, err := client.GetAuthorization(context.Background(), authorizationUrl)
+	authorization, err := client.GetAuthorization(ctx, authorizationUrl)
 	if err != nil {
 		return &motmedelErrors.InputError{
 			Message: "An error occurred when getting an authorization response.",
@@ -116,14 +122,14 @@ func authorize(authorizationUrl string, client *acme.Client, callback func(strin
 		}
 	}
 
-	if _, err := client.Accept(context.Background(), challenge); err != nil {
+	if _, err := client.Accept(ctx, challenge); err != nil {
 		return &motmedelErrors.CauseError{
 			Message: "An error occurred when accepting the challenge.",
 			Cause:   err,
 		}
 	}
 
-	if _, err := client.WaitAuthorization(context.Background(), authorization.URI); err != nil {
+	if _, err := client.WaitAuthorization(ctx, authorization.URI); err != nil {
 		return &motmedelErrors.CauseError{
 			Message: "An error occurred when waiting for authorization.",
 			Cause:   err,
@@ -152,6 +158,7 @@ func getChallenge(authorization *acme.Authorization) *acme.Challenge {
 }
 
 func RenewCertificate(
+	ctx context.Context,
 	domain string,
 	authorizeCallback func(string) error,
 	client *acme.Client,
@@ -183,7 +190,7 @@ func RenewCertificate(
 		}
 	}
 
-	order, err := client.AuthorizeOrder(context.Background(), []acme.AuthzID{{Type: "dns", Value: domain}})
+	order, err := client.AuthorizeOrder(ctx, []acme.AuthzID{{Type: "dns", Value: domain}})
 	if err != nil {
 		return nil, nil, &motmedelErrors.CauseError{
 			Message: "An error occurred when authorizing an order.",
@@ -200,7 +207,7 @@ func RenewCertificate(
 	}
 
 	authorizationUrl := orderAuthzUrls[0]
-	if err := authorize(authorizationUrl, client, authorizeCallback); err != nil {
+	if err := authorize(ctx, authorizationUrl, client, authorizeCallback); err != nil {
 		return nil, nil, &motmedelErrors.InputError{
 			Message: "An error occurred when authorizing.",
 			Cause:   err,
@@ -208,7 +215,7 @@ func RenewCertificate(
 		}
 	}
 
-	certificateBlocks, err := obtainCertificate(domain, certificateKey, order.URI, client)
+	certificateBlocks, err := obtainCertificate(ctx, domain, certificateKey, order.URI, client)
 	if err != nil {
 		return nil, nil, &motmedelErrors.CauseError{
 			Message: "An error occurred when obtaining the certificate.",
