@@ -133,39 +133,6 @@ func authorize(authorizationUrl string, client *acme.Client, callback func(strin
 	return nil
 }
 
-func getAuthorizedOrder(domain string, client *acme.Client) (*acme.Order, error) {
-	if domain == "" {
-		return nil, nil
-	}
-
-	if client == nil {
-		return nil, acmeUtilsErrors.ErrNilClient
-	}
-
-	order, err := client.AuthorizeOrder(context.Background(), []acme.AuthzID{{Type: "dns", Value: domain}})
-	if err != nil {
-		return nil, &motmedelErrors.CauseError{
-			Message: "An error occurred when authorizing an order.",
-			Cause:   err,
-		}
-	}
-	if order == nil {
-		return nil, acmeUtilsErrors.ErrNilAuthorizedOrder
-	}
-
-	orderUri := order.URI
-	order, err = client.GetOrder(context.Background(), orderUri)
-	if err != nil {
-		return nil, &motmedelErrors.InputError{
-			Message: "An error occurred when getting an order.",
-			Cause:   err,
-			Input:   orderUri,
-		}
-	}
-
-	return order, nil
-}
-
 func getChallenge(authorization *acme.Authorization) *acme.Challenge {
 	if authorization == nil {
 		return nil
@@ -216,22 +183,23 @@ func RenewCertificate(
 		}
 	}
 
-	order, err := getAuthorizedOrder(domain, client)
+	order, err := client.AuthorizeOrder(context.Background(), []acme.AuthzID{{Type: "dns", Value: domain}})
 	if err != nil {
-		return nil, nil, &motmedelErrors.InputError{
-			Message: "An error occurred when getting an authorized order.",
+		return nil, nil, &motmedelErrors.CauseError{
+			Message: "An error occurred when authorizing an order.",
 			Cause:   err,
-			Input:   domain,
 		}
 	}
 	if order == nil {
 		return nil, nil, acmeUtilsErrors.ErrNilOrder
 	}
-	if len(order.AuthzURLs) == 0 {
+
+	orderAuthzUrls := order.AuthzURLs
+	if len(orderAuthzUrls) == 0 {
 		return nil, nil, acmeUtilsErrors.ErrEmptyAuthorizationUrls
 	}
 
-	authorizationUrl := order.AuthzURLs[0]
+	authorizationUrl := orderAuthzUrls[0]
 	if err := authorize(authorizationUrl, client, authorizeCallback); err != nil {
 		return nil, nil, &motmedelErrors.InputError{
 			Message: "An error occurred when authorizing.",

@@ -4,7 +4,6 @@ import "errors"
 
 var (
 	ErrNilClient                    = errors.New("nil client")
-	ErrNilAuthorizedOrder           = errors.New("nil authorized order")
 	ErrNilOrder                     = errors.New("nil order")
 	ErrEmptyAuthorizationUrls       = errors.New("empty authorization urls")
 	ErrNilAuthorization             = errors.New("nil authorization")
