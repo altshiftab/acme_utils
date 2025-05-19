@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
 	acmeUtilsErrors "github.com/altshiftab/acme_utils/pkg/errors"
 	"golang.org/x/crypto/acme"
@@ -24,15 +25,15 @@ func obtainCertificate(
 	}
 
 	if certificateKey == nil {
-		return nil, acmeUtilsErrors.ErrNilCertificateKey
+		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilCertificateKey)
 	}
 
 	if orderUri == "" {
-		return nil, acmeUtilsErrors.ErrEmptyOrderUri
+		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrEmptyOrderUri)
 	}
 
 	if client == nil {
-		return nil, acmeUtilsErrors.ErrNilClient
+		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilClient)
 	}
 
 	certificateRequest, err := x509.CreateCertificateRequest(
@@ -41,34 +42,27 @@ func obtainCertificate(
 		certificateKey,
 	)
 	if err != nil {
-		return nil, &motmedelErrors.InputError{
-			Message: "An error occurred when creating a certificate request.",
-			Cause:   err,
-			Input:   domain,
-		}
+		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("x509 create certificate request: %w", err))
 	}
 	if certificateRequest == nil {
-		return nil, acmeUtilsErrors.ErrNilCertificateRequest
+		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilCertificateRequest)
 	}
 
 	order, err := client.WaitOrder(ctx, orderUri)
 	if err != nil {
-		return nil, &motmedelErrors.InputError{
-			Message: "An error occurred when waiting for an order.",
-			Cause:   err,
-			Input:   orderUri,
-		}
+		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("acme client wait order: %w", err))
 	}
 	if order == nil {
-		return nil, acmeUtilsErrors.ErrNilOrder
+		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilOrder)
 	}
 
-	certificateDerBlocks, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, certificateRequest, true)
+	finializeUrl := order.FinalizeURL
+	certificateDerBlocks, _, err := client.CreateOrderCert(ctx, finializeUrl, certificateRequest, true)
 	if err != nil {
-		return nil, &motmedelErrors.CauseError{
-			Message: "An error occurred when creating certificate blocks.",
-			Cause:   err,
-		}
+		return nil, motmedelErrors.NewWithTrace(
+			fmt.Errorf("acme client create order cert: %w", err),
+			finializeUrl, certificateRequest,
+		)
 	}
 
 	return certificateDerBlocks, nil
@@ -76,64 +70,49 @@ func obtainCertificate(
 
 func authorize(ctx context.Context, authorizationUrl string, client *acme.Client, callback func(string) error) error {
 	if authorizationUrl == "" {
-		return acmeUtilsErrors.ErrEmptyAuthorizationUrl
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrEmptyAuthorizationUrl)
 	}
 
 	if client == nil {
-		return acmeUtilsErrors.ErrNilClient
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilClient)
 	}
 
 	if callback == nil {
-		return acmeUtilsErrors.ErrNilAuthorizeCallback
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilAuthorizeCallback)
 	}
 
 	authorization, err := client.GetAuthorization(ctx, authorizationUrl)
 	if err != nil {
-		return &motmedelErrors.InputError{
-			Message: "An error occurred when getting an authorization response.",
-			Cause:   err,
-			Input:   authorizationUrl,
-		}
+		return motmedelErrors.NewWithTrace(fmt.Errorf("acme client get authorization: %w", err))
 	}
 	if authorization == nil {
-		return acmeUtilsErrors.ErrNilAuthorization
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilAuthorization)
 	}
 
 	challenge := getChallenge(authorization)
 	if challenge == nil {
-		return acmeUtilsErrors.ErrNilChallenge
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilChallenge)
 	}
 
 	dnsChallengeRecordValue, err := client.DNS01ChallengeRecord(challenge.Token)
 	if err != nil {
-		return &motmedelErrors.CauseError{
-			Message: "An error occurred when obtaining the DNS challenge record value.",
-			Cause:   err,
-		}
+		return motmedelErrors.NewWithTrace(fmt.Errorf("acme client 01 dns challenge record: %w", err))
 	}
 	if dnsChallengeRecordValue == "" {
-		return acmeUtilsErrors.ErrEmptyDnsChallengeRecordValue
+		return motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrEmptyDnsChallengeRecordValue)
 	}
 
 	if err := callback(dnsChallengeRecordValue); err != nil {
-		return &motmedelErrors.CauseError{
-			Message: "An error occurred when calling the authorization callback.",
-			Cause:   err,
-		}
+		return fmt.Errorf("authorization callback: %w", err)
 	}
 
 	if _, err := client.Accept(ctx, challenge); err != nil {
-		return &motmedelErrors.CauseError{
-			Message: "An error occurred when accepting the challenge.",
-			Cause:   err,
-		}
+		return motmedelErrors.NewWithTrace(fmt.Errorf("acme client accept: %w", err))
 	}
 
-	if _, err := client.WaitAuthorization(ctx, authorization.URI); err != nil {
-		return &motmedelErrors.CauseError{
-			Message: "An error occurred when waiting for authorization.",
-			Cause:   err,
-		}
+	authorizationUri := authorization.URI
+	if _, err := client.WaitAuthorization(ctx, authorizationUri); err != nil {
+		return motmedelErrors.NewWithTrace(fmt.Errorf("acme client wait authorization: %w", err), authorizationUri)
 	}
 
 	return nil
@@ -182,23 +161,16 @@ func RenewCertificate(
 		curve := elliptic.P256()
 		certificateKey, err = ecdsa.GenerateKey(curve, rand.Reader)
 		if err != nil {
-			return nil, nil, &motmedelErrors.InputError{
-				Message: "An error occurred when generating a certificate key.",
-				Cause:   err,
-				Input:   curve,
-			}
+			return nil, nil, motmedelErrors.NewWithTrace("ecdsa generate key: %w", err)
 		}
 	}
 
 	order, err := client.AuthorizeOrder(ctx, []acme.AuthzID{{Type: "dns", Value: domain}})
 	if err != nil {
-		return nil, nil, &motmedelErrors.CauseError{
-			Message: "An error occurred when authorizing an order.",
-			Cause:   err,
-		}
+		return nil, nil, motmedelErrors.NewWithTrace("acme client authorize order: %w", err)
 	}
 	if order == nil {
-		return nil, nil, acmeUtilsErrors.ErrNilOrder
+		return nil, nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilOrder)
 	}
 
 	orderAuthzUrls := order.AuthzURLs
@@ -208,19 +180,13 @@ func RenewCertificate(
 
 	authorizationUrl := orderAuthzUrls[0]
 	if err := authorize(ctx, authorizationUrl, client, authorizeCallback); err != nil {
-		return nil, nil, &motmedelErrors.InputError{
-			Message: "An error occurred when authorizing.",
-			Cause:   err,
-			Input:   authorizationUrl,
-		}
+		return nil, nil, motmedelErrors.New(fmt.Errorf("authorize: %w", err), authorizationUrl)
 	}
 
-	certificateBlocks, err := obtainCertificate(ctx, domain, certificateKey, order.URI, client)
+	orderUri := order.URI
+	certificateBlocks, err := obtainCertificate(ctx, domain, certificateKey, orderUri, client)
 	if err != nil {
-		return nil, nil, &motmedelErrors.CauseError{
-			Message: "An error occurred when obtaining the certificate.",
-			Cause:   err,
-		}
+		return nil, nil, motmedelErrors.New(fmt.Errorf("obtain certificate: %w", err), orderUri)
 	}
 
 	return certificateKey, certificateBlocks, nil
