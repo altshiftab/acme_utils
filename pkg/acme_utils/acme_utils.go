@@ -56,12 +56,12 @@ func obtainCertificate(
 		return nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilOrder)
 	}
 
-	finializeUrl := order.FinalizeURL
-	certificateDerBlocks, _, err := client.CreateOrderCert(ctx, finializeUrl, certificateRequest, true)
+	finalizeURL := order.FinalizeURL
+	certificateDerBlocks, _, err := client.CreateOrderCert(ctx, finalizeURL, certificateRequest, true)
 	if err != nil {
 		return nil, motmedelErrors.NewWithTrace(
 			fmt.Errorf("acme client create order cert: %w", err),
-			finializeUrl, certificateRequest,
+			finalizeURL,
 		)
 	}
 
@@ -161,13 +161,13 @@ func RenewCertificate(
 		curve := elliptic.P256()
 		certificateKey, err = ecdsa.GenerateKey(curve, rand.Reader)
 		if err != nil {
-			return nil, nil, motmedelErrors.NewWithTrace("ecdsa generate key: %w", err)
+			return nil, nil, motmedelErrors.NewWithTrace(fmt.Errorf("ecdsa generate key: %w", err))
 		}
 	}
 
 	order, err := client.AuthorizeOrder(ctx, []acme.AuthzID{{Type: "dns", Value: domain}})
 	if err != nil {
-		return nil, nil, motmedelErrors.NewWithTrace("acme client authorize order: %w", err)
+		return nil, nil, motmedelErrors.NewWithTrace(fmt.Errorf("acme client authorize order: %w", err))
 	}
 	if order == nil {
 		return nil, nil, motmedelErrors.NewWithTrace(acmeUtilsErrors.ErrNilOrder)
